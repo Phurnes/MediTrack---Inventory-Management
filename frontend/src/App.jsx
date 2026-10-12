@@ -1,8 +1,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import ReactMarkdown from "react-markdown";
+import StockPlanner from "./StockPlanner";
 
 const API_URL = "http://127.0.0.1:8000/api/medicines/";
+const ASSISTANT_URL = "http://127.0.0.1:8000/api/assistant/";
 
 const emptyForm = {
   name: "",
@@ -10,6 +13,7 @@ const emptyForm = {
   batch_number: "",
   manufacturer: "",
   quantity: "0",
+  target_stock: "20",
   expiry_date: "",
 };
 
@@ -23,12 +27,18 @@ const categories = [
   ["OTHER", "Other"],
 ];
 
+const suggestions = [
+  "Which medicines will expire in the next 30 days?",
+  "Show expired medicines with quantities above 50.",
+  "Which categories have the most stock at risk?",
+  "Summarize our current inventory problems.",
+];
+
 function displayDate(value) {
   if (!value) return "—";
   const [year, month, day] = value.split("-");
   return `${day}-${month}-${year}`;
 }
-
 
 function getStatus(medicine) {
   if (medicine.status) return medicine.status;
@@ -44,16 +54,60 @@ function getStatus(medicine) {
   const warnings = [];
 
   if (daysLeft <= 30) warnings.push("Expiring Soon");
-  if (medicine.quantity < 20) warnings.push("Low Stock");
+
+  if (
+    Number(medicine.quantity) <
+    Number(medicine.target_stock ?? 20)
+  ) {
+    warnings.push("Low Stock");
+  }
 
   return warnings.length ? warnings.join(", ") : "In Stock";
 }
 
+async function apiRequest(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.body
+        ? { "Content-Type": "application/json" }
+        : {}),
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    let detail = `Request failed (${response.status})`;
+
+    try {
+      const data = await response.json();
+
+      detail = Object.entries(data)
+        .map(([key, value]) => {
+          const text = Array.isArray(value)
+            ? value.join(", ")
+            : value;
+
+          return `${key}: ${text}`;
+        })
+        .join(" | ");
+    } catch {
+      // Keep the HTTP status message.
+    }
+
+    throw new Error(detail);
+  }
+
+  if (response.status === 204) return null;
+
+  return response.json();
+}
 
 function App() {
   const [medicines, setMedicines] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("expiry_asc");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -62,46 +116,22 @@ function App() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
 
-  const request = async (url, options = {}) => {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...options.headers,
-      },
-    });
-
-    if (!response.ok) {
-      let detail = `Request failed (${response.status})`;
-      try {
-        const data = await response.json();
-        detail = Object.entries(data)
-          .map(([key, value]) => {
-            const text = Array.isArray(value) ? value.join(", ") : value;
-            return `${key}: ${text}`;
-          })
-          .join(" | ");
-      } catch {
-        // Keep the HTTP status message if the response isn't JSON.
-      }
-      throw new Error(detail);
-    }
-
-    if (response.status === 204) return null;
-    return response.json();
-  };
+  const [assistantQuestion, setAssistantQuestion] = useState("");
+  const [assistantMessages, setAssistantMessages] = useState([]);
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantError, setAssistantError] = useState("");
 
   const loadMedicines = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      // Follow every DRF pagination page so dashboard counts are accurate.
       let url = API_URL;
       const all = [];
 
       while (url) {
-        const data = await request(url);
+        const data = await apiRequest(url);
+
         if (Array.isArray(data)) {
           all.push(...data);
           url = null;
@@ -128,39 +158,66 @@ function App() {
   const filteredMedicines = useMemo(() => {
     const term = search.trim().toLowerCase();
 
-    return medicines.filter((medicine) => {
+    const filtered = medicines.filter((medicine) => {
       const matchesSearch = [
         medicine.name,
         medicine.batch_number,
         medicine.manufacturer,
-      ].some((value) => (value || "").toLowerCase().includes(term));
+      ].some((value) =>
+        (value || "").toLowerCase().includes(term)
+      );
+
+      const status = getStatus(medicine);
 
       const matchesFilter =
-        filter === "All" || getStatus(medicine).split(", ").includes(filter);
+        filter === "All" ||
+        status.split(", ").includes(filter);
 
       return matchesSearch && matchesFilter;
     });
-  }, [medicines, search, filter]);
 
-  
+    const sortOptions = {
+      name_asc: (a, b) =>
+        (a.name || "").localeCompare(b.name || ""),
+      name_desc: (a, b) =>
+        (b.name || "").localeCompare(a.name || ""),
+      expiry_asc: (a, b) =>
+        (a.expiry_date || "").localeCompare(b.expiry_date || ""),
+      expiry_desc: (a, b) =>
+        (b.expiry_date || "").localeCompare(a.expiry_date || ""),
+      quantity_asc: (a, b) =>
+        Number(a.quantity) - Number(b.quantity),
+      quantity_desc: (a, b) =>
+        Number(b.quantity) - Number(a.quantity),
+    };
+
+    return [...filtered].sort(
+      sortOptions[sortBy] || sortOptions.expiry_asc
+    );
+  }, [medicines, search, filter, sortBy]);
+
   const expiringCount = medicines.filter((medicine) => {
     const status = getStatus(medicine);
-    return status.includes("Expiring Soon") || status === "Expired";
+
+    return (
+      status.includes("Expiring Soon") ||
+      status === "Expired"
+    );
   }).length;
 
-  const lowStockCount = medicines.filter((medicine) => {
-    return getStatus(medicine).includes("Low Stock");
-  }).length;
-
+  const lowStockCount = medicines.filter((medicine) =>
+    getStatus(medicine).includes("Low Stock")
+  ).length;
 
   const totalUnits = medicines.reduce(
-    (total, medicine) => total + Number(medicine.quantity || 0),
+    (total, medicine) =>
+      total + Number(medicine.quantity || 0),
     0
   );
 
   function openAddForm() {
     setEditingId(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm });
     setError("");
     setMessage("");
     setFormOpen(true);
@@ -168,14 +225,17 @@ function App() {
 
   function openEditForm(medicine) {
     setEditingId(medicine.id);
+
     setForm({
       name: medicine.name,
       category: medicine.category,
       batch_number: medicine.batch_number,
       manufacturer: medicine.manufacturer || "",
       quantity: String(medicine.quantity),
+      target_stock: String(medicine.target_stock ?? 20),
       expiry_date: medicine.expiry_date,
     });
+
     setError("");
     setMessage("");
     setFormOpen(true);
@@ -183,14 +243,21 @@ function App() {
 
   function updateField(event) {
     const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
+
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
   }
 
   async function submitMedicine(event) {
     event.preventDefault();
+
     setSaving(true);
     setError("");
     setMessage("");
+
+    const isEditing = editingId !== null;
 
     try {
       const payload = {
@@ -199,20 +266,33 @@ function App() {
         batch_number: form.batch_number.trim(),
         manufacturer: form.manufacturer.trim(),
         quantity: Number(form.quantity),
+        target_stock: Number(form.target_stock),
       };
 
-      const url = editingId ? `${API_URL}${editingId}/` : API_URL;
+      const url = isEditing
+        ? `${API_URL}${editingId}/`
+        : API_URL;
 
-      await request(url, {
-        method: editingId ? "PATCH" : "POST",
+      await apiRequest(url, {
+        method: isEditing ? "PATCH" : "POST",
         body: JSON.stringify(payload),
       });
 
       setFormOpen(false);
-      setForm(emptyForm);
+      setForm({ ...emptyForm });
       setEditingId(null);
-      setMessage(editingId ? "Medicine updated successfully." : "Medicine added successfully.");
+
+      setMessage(
+        isEditing
+          ? "Medicine updated successfully."
+          : "Medicine added successfully."
+      );
+
       await loadMedicines();
+
+      window.dispatchEvent(
+        new Event("meditrack:inventory-updated")
+      );
     } catch (err) {
       setError(err.message);
     } finally {
@@ -224,18 +304,78 @@ function App() {
     const confirmed = window.confirm(
       `Delete ${medicine.name} (batch ${medicine.batch_number})?`
     );
+
     if (!confirmed) return;
 
     setError("");
     setMessage("");
 
     try {
-      await request(`${API_URL}${medicine.id}/`, { method: "DELETE" });
+      await apiRequest(`${API_URL}${medicine.id}/`, {
+        method: "DELETE",
+      });
+
       setMessage("Medicine deleted successfully.");
+
       await loadMedicines();
+
+      window.dispatchEvent(
+        new Event("meditrack:inventory-updated")
+      );
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  async function askAssistant(question = assistantQuestion) {
+    const cleanQuestion = question.trim();
+
+    if (!cleanQuestion || assistantLoading) return;
+
+    setAssistantQuestion("");
+    setAssistantError("");
+
+    setAssistantMessages((previous) => [
+      ...previous,
+      { role: "user", text: cleanQuestion },
+    ]);
+
+    setAssistantLoading(true);
+
+    try {
+      const data = await apiRequest(ASSISTANT_URL, {
+        method: "POST",
+        body: JSON.stringify({ question: cleanQuestion }),
+      });
+
+      setAssistantMessages((previous) => [
+        ...previous,
+        {
+          role: "assistant",
+          text: data.answer || "The assistant returned no answer.",
+          data: data.data || null,
+        },
+      ]);
+    } catch (err) {
+      setAssistantError(
+        `${err.message}. Check that Django and the assistant endpoint are running.`
+      );
+    } finally {
+      setAssistantLoading(false);
+    }
+  }
+
+  function handleAssistantSubmit(event) {
+    event.preventDefault();
+    askAssistant();
+  }
+
+  function clearAssistantChat() {
+    if (assistantLoading) return;
+
+    setAssistantMessages([]);
+    setAssistantError("");
+    setAssistantQuestion("");
   }
 
   return (
@@ -250,6 +390,7 @@ function App() {
         </div>
 
         <p className="nav-label">WORKSPACE</p>
+
         <nav>
           <a className="nav-item active" href="#dashboard">
             <span>▦</span> Dashboard
@@ -259,6 +400,9 @@ function App() {
           </a>
           <a className="nav-item" href="#alerts">
             <span>♧</span> Expiry &amp; Stock Alerts
+          </a>
+          <a className="nav-item" href="#assistant">
+            <span>✧</span> AI Assistant
           </a>
         </nav>
 
@@ -280,8 +424,9 @@ function App() {
               Monitor your medicine stock and expiry dates.
             </p>
           </div>
+
           <div className="today-badge">
-            <span>◷</span>{" "}
+            ◷{" "}
             {new Date().toLocaleDateString("en-IN", {
               day: "2-digit",
               month: "short",
@@ -293,13 +438,24 @@ function App() {
         {error && (
           <div className="app-message error-message" role="alert">
             <span>{error}</span>
-            <button onClick={() => setError("")} aria-label="Dismiss error">×</button>
+            <button
+              onClick={() => setError("")}
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
           </div>
         )}
+
         {message && (
           <div className="app-message success-message" role="status">
             <span>{message}</span>
-            <button onClick={() => setMessage("")} aria-label="Dismiss message">×</button>
+            <button
+              onClick={() => setMessage("")}
+              aria-label="Dismiss message"
+            >
+              ×
+            </button>
           </div>
         )}
 
@@ -308,39 +464,50 @@ function App() {
             <div className="stat-icon purple">▤</div>
             <p>Total Medicines</p>
             <h2>{loading ? "—" : medicines.length}</h2>
-            <span className="stat-note">Unique inventory records</span>
+            <span className="stat-note">Inventory records</span>
           </article>
+
           <article className="stat-card">
             <div className="stat-icon blue">▦</div>
             <p>Total Units in Stock</p>
             <h2>{loading ? "—" : totalUnits}</h2>
             <span className="stat-note">Units across all batches</span>
           </article>
+
           <article className="stat-card">
             <div className="stat-icon orange">◷</div>
             <p>Expiry Alerts</p>
             <h2>{loading ? "—" : expiringCount}</h2>
-            <span className="stat-note">Expired or expiring within 30 days</span>
+            <span className="stat-note">
+              Expired or expiring soon
+            </span>
           </article>
+
           <article className="stat-card">
             <div className="stat-icon red">!</div>
             <p>Low Stock</p>
             <h2>{loading ? "—" : lowStockCount}</h2>
-            <span className="stat-note">Fewer than 20 units</span>
+            <span className="stat-note">Below target stock</span>
           </article>
         </section>
+
+        <StockPlanner />
 
         <section className="inventory-panel" id="inventory">
           <div className="panel-heading">
             <div>
               <h2>Medicine Inventory</h2>
-              <p>Review stock levels and medicine expiry dates.</p>
+              <p>Review stock levels and expiry dates.</p>
             </div>
+
             <div className="panel-actions">
               <span className="record-count">
                 {filteredMedicines.length} records
               </span>
-              <button className="primary-button" onClick={openAddForm}>
+              <button
+                className="primary-button"
+                onClick={openAddForm}
+              >
                 + Add Medicine
               </button>
             </div>
@@ -356,6 +523,7 @@ function App() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
+
             <select
               aria-label="Filter by status"
               value={filter}
@@ -367,7 +535,25 @@ function App() {
               <option value="Expiring Soon">Expiring Soon</option>
               <option value="Expired">Expired</option>
             </select>
-            <button className="secondary-button" onClick={loadMedicines} disabled={loading}>
+
+            <select
+              aria-label="Sort medicines"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value)}
+            >
+              <option value="name_asc">Name: A to Z</option>
+              <option value="name_desc">Name: Z to A</option>
+              <option value="expiry_asc">Expiry: Earliest first</option>
+              <option value="expiry_desc">Expiry: Latest first</option>
+              <option value="quantity_asc">Quantity: Lowest first</option>
+              <option value="quantity_desc">Quantity: Highest first</option>
+            </select>
+
+            <button
+              className="secondary-button"
+              onClick={loadMedicines}
+              disabled={loading}
+            >
               Refresh
             </button>
           </div>
@@ -375,7 +561,9 @@ function App() {
           {formOpen && (
             <form className="medicine-form" onSubmit={submitMedicine}>
               <div className="form-heading">
-                <h3>{editingId ? "Edit medicine" : "Add medicine"}</h3>
+                <h3>
+                  {editingId !== null ? "Edit medicine" : "Add medicine"}
+                </h3>
                 <button
                   type="button"
                   className="close-button"
@@ -389,40 +577,109 @@ function App() {
               <div className="form-grid">
                 <label>
                   Medicine name *
-                  <input name="name" value={form.name} onChange={updateField} required maxLength={150} />
+                  <input
+                    name="name"
+                    value={form.name}
+                    onChange={updateField}
+                    required
+                    maxLength={150}
+                  />
                 </label>
+
                 <label>
                   Category *
-                  <select name="category" value={form.category} onChange={updateField} required>
+                  <select
+                    name="category"
+                    value={form.category}
+                    onChange={updateField}
+                    required
+                  >
                     {categories.map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
                     ))}
                   </select>
                 </label>
+
                 <label>
                   Batch number *
-                  <input name="batch_number" value={form.batch_number} onChange={updateField} required maxLength={100} />
+                  <input
+                    name="batch_number"
+                    value={form.batch_number}
+                    onChange={updateField}
+                    required
+                    maxLength={100}
+                  />
                 </label>
+
                 <label>
                   Manufacturer
-                  <input name="manufacturer" value={form.manufacturer} onChange={updateField} maxLength={150} />
+                  <input
+                    name="manufacturer"
+                    value={form.manufacturer}
+                    onChange={updateField}
+                    maxLength={150}
+                  />
                 </label>
+
                 <label>
                   Quantity *
-                  <input name="quantity" type="number" min="0" step="1" value={form.quantity} onChange={updateField} required />
+                  <input
+                    name="quantity"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.quantity}
+                    onChange={updateField}
+                    required
+                  />
                 </label>
+
+                <label>
+                  Target stock *
+                  <input
+                    name="target_stock"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.target_stock}
+                    onChange={updateField}
+                    required
+                  />
+                </label>
+
                 <label>
                   Expiry date *
-                  <input name="expiry_date" type="date" value={form.expiry_date} onChange={updateField} required />
+                  <input
+                    name="expiry_date"
+                    type="date"
+                    value={form.expiry_date}
+                    onChange={updateField}
+                    required
+                  />
                 </label>
               </div>
 
               <div className="form-actions">
-                <button type="button" className="secondary-button" onClick={() => setFormOpen(false)}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setFormOpen(false)}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="primary-button" disabled={saving}>
-                  {saving ? "Saving..." : editingId ? "Save changes" : "Add medicine"}
+
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={saving}
+                >
+                  {saving
+                    ? "Saving..."
+                    : editingId !== null
+                      ? "Save changes"
+                      : "Add medicine"}
                 </button>
               </div>
             </form>
@@ -435,64 +692,98 @@ function App() {
                   <th>MEDICINE</th>
                   <th>BATCH NUMBER</th>
                   <th>QUANTITY</th>
+                  <th>TARGET STOCK</th>
                   <th>EXPIRY DATE</th>
                   <th>STATUS</th>
                   <th>ACTIONS</th>
                 </tr>
               </thead>
+
               <tbody>
                 {loading && (
-                  <tr><td colSpan="6" className="empty-state">Loading inventory...</td></tr>
+                  <tr>
+                    <td colSpan="7" className="empty-state">
+                      Loading inventory...
+                    </td>
+                  </tr>
                 )}
-                {!loading && filteredMedicines.map((medicine) => {
-                  const status = getStatus(medicine);
-                  return (
-                    <tr key={medicine.id}>
-                      <td>
-                        <div className="medicine-name">
-                          <div className="medicine-avatar">
-                            {(medicine.name || "?").charAt(0).toUpperCase()}
+
+                {!loading &&
+                  filteredMedicines.map((medicine) => {
+                    const status = getStatus(medicine);
+
+                    const statusClasses = status
+                      .split(", ")
+                      .map(
+                        (item) =>
+                          `status-${item
+                            .toLowerCase()
+                            .replaceAll(" ", "-")}`
+                      )
+                      .join(" ");
+
+                    return (
+                      <tr key={medicine.id}>
+                        <td>
+                          <div className="medicine-name">
+                            <div className="medicine-avatar">
+                              {(medicine.name || "?")
+                                .charAt(0)
+                                .toUpperCase()}
+                            </div>
+                            <div>
+                              <strong>{medicine.name}</strong>
+                              <span>
+                                {categories.find(
+                                  ([value]) => value === medicine.category
+                                )?.[1] || medicine.category}
+                              </span>
+                            </div>
                           </div>
-                          <div>
-                            <strong>{medicine.name}</strong>
-                            <span>
-                              {categories.find(([value]) => value === medicine.category)?.[1] || medicine.category}
-                            </span>
+                        </td>
+
+                        <td className="batch-number">
+                          {medicine.batch_number}
+                        </td>
+
+                        <td>
+                          <strong>{medicine.quantity}</strong>
+                          <span className="unit-label"> units</span>
+                        </td>
+
+                        <td>{medicine.target_stock ?? 20} units</td>
+
+                        <td>{displayDate(medicine.expiry_date)}</td>
+
+                        <td>
+                          <span className={`status ${statusClasses}`}>
+                            {status}
+                          </span>
+                        </td>
+
+                        <td>
+                          <div className="row-actions">
+                            <button
+                              className="text-button"
+                              onClick={() => openEditForm(medicine)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="text-button delete-button"
+                              onClick={() => deleteMedicine(medicine)}
+                            >
+                              Delete
+                            </button>
                           </div>
-                        </div>
-                      </td>
-                      <td className="batch-number">{medicine.batch_number}</td>
-                      <td>
-                        <strong>{medicine.quantity}</strong>
-                        <span className="unit-label"> units</span>
-                      </td>
-                      <td>{displayDate(medicine.expiry_date)}</td>
-                      <td>
-                        <span
-                          className={`status ${status
-                            .split(", ")
-                            .map((item) => `status-${item.toLowerCase().replaceAll(" ", "-")}`)
-                            .join(" ")}`}
-                        >
-                          {status}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          <button className="text-button" onClick={() => openEditForm(medicine)}>
-                            Edit
-                          </button>
-                          <button className="text-button delete-button" onClick={() => deleteMedicine(medicine)}>
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
                 {!loading && filteredMedicines.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="empty-state">
+                    <td colSpan="7" className="empty-state">
                       {medicines.length === 0
                         ? "No medicines in the database yet. Select Add Medicine to create one."
                         : "No medicines match your search or filter."}
@@ -519,9 +810,147 @@ function App() {
           </div>
         </section>
 
-        <footer className="page-footer">
-          MediTrack · Medicine Expiry &amp; Inventory Management System
-        </footer>
+        <section className="assistant-panel" id="assistant">
+          <div className="assistant-heading">
+            <div className="assistant-brand-icon">✧</div>
+            <div className="assistant-title">
+              <p className="eyebrow">YOUR INVENTORY, EXPLAINED</p>
+              <h2>MediTrack AI Assistant</h2>
+              <p>
+                Ask questions about your inventory using natural language.
+              </p>
+            </div>
+
+            <button
+              className="secondary-button assistant-clear"
+              onClick={clearAssistantChat}
+              disabled={assistantLoading || assistantMessages.length === 0}
+            >
+              Clear chat
+            </button>
+          </div>
+
+          {assistantMessages.length === 0 && (
+            <div className="assistant-welcome">
+              <div className="assistant-sparkle">✧</div>
+              <h3>What would you like to know?</h3>
+              <p>
+                I'll check your inventory records and explain the results.
+              </p>
+
+              <div className="suggestion-grid">
+                {suggestions.map((question) => (
+                  <button
+                    className="suggestion-button"
+                    key={question}
+                    onClick={() => askAssistant(question)}
+                    disabled={assistantLoading}
+                  >
+                    <span>↗</span>
+                    {question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {assistantMessages.length > 0 && (
+            <div className="assistant-conversation" aria-live="polite">
+              {assistantMessages.map((item, index) => (
+                <div
+                  className={`chat-row ${item.role}`}
+                  key={`${index}-${item.role}`}
+                >
+                  <div className="chat-avatar">
+                    {item.role === "assistant" ? "✧" : "Y"}
+                  </div>
+
+                  <div className="chat-content">
+                    <span className="chat-author">
+                      {item.role === "assistant" ? "MediTrack AI" : "You"}
+                    </span>
+
+                    <div className="chat-bubble">
+                      {item.role === "assistant" ? (
+                        <div className="markdown-answer">
+                          <ReactMarkdown>{item.text}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <p>{item.text}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {assistantLoading && (
+                <div className="chat-row assistant">
+                  <div className="chat-avatar">✧</div>
+                  <div className="chat-content">
+                    <span className="chat-author">MediTrack AI</span>
+                    <div className="chat-bubble typing-bubble">
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="typing-label">
+                        Analyzing inventory...
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {assistantError && (
+            <div
+              className="app-message error-message assistant-error"
+              role="alert"
+            >
+              <span>{assistantError}</span>
+              <button
+                onClick={() => setAssistantError("")}
+                aria-label="Dismiss assistant error"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          <form
+            className="assistant-input-form"
+            onSubmit={handleAssistantSubmit}
+          >
+            <textarea
+              value={assistantQuestion}
+              onChange={(event) =>
+                setAssistantQuestion(event.target.value)
+              }
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  handleAssistantSubmit(event);
+                }
+              }}
+              placeholder="Ask about expiring medicines, stock levels, or inventory risks..."
+              aria-label="Ask MediTrack AI Assistant"
+              rows={2}
+              maxLength={1000}
+            />
+
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={assistantLoading || !assistantQuestion.trim()}
+            >
+              {assistantLoading ? "Thinking..." : "Ask Assistant"}
+            </button>
+          </form>
+        </section>
       </main>
     </div>
   );

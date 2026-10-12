@@ -18,17 +18,20 @@ class MedicineSerializer(serializers.ModelSerializer):
             "batch_number",
             "manufacturer",
             "quantity",
+            "target_stock",
             "expiry_date",
             "created_at",
             "updated_at",
             "status",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "status"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "status",
+        ]
 
-    
     def get_status(self, obj):
-        from datetime import date
-
         days_left = (obj.expiry_date - date.today()).days
 
         if days_left < 0:
@@ -39,14 +42,13 @@ class MedicineSerializer(serializers.ModelSerializer):
         if days_left <= 30:
             warnings.append("Expiring Soon")
 
-        if obj.quantity < 20:
+        if obj.quantity < obj.target_stock:
             warnings.append("Low Stock")
 
         if warnings:
             return ", ".join(warnings)
 
         return "In Stock"
-
 
     def validate_quantity(self, value):
         if value < 0:
@@ -55,10 +57,19 @@ class MedicineSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_target_stock(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Target stock cannot be negative."
+            )
+        return value
+
     def validate_batch_number(self, value):
         value = value.strip()
+
         if not value:
             raise serializers.ValidationError(
                 "Batch number cannot be empty."
             )
+
         return value
