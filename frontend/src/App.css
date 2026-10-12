@@ -2175,13 +2175,7 @@ button[type="submit"]:hover {
   gap: 14px;
 }
 
-.distribution-row {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto 48px;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.82rem;
-}
+
 
 .distribution-dot {
   width: 9px;
@@ -2189,29 +2183,40 @@ button[type="submit"]:hover {
   border-radius: 50%;
 }
 
-.distribution-category {
-  color: #34495a;
-  min-width: 0;
-}
-
-.distribution-quantity {
-  font-weight: 600;
-  color: #617487;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.distribution-percent {
-  color: var(--med-muted);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
 
 .distribution-empty {
   text-align: center;
   color: var(--med-muted);
   font-size: 0.85rem;
   padding: 12px 0;
+}
+
+.distribution-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.distribution-category {
+  color: #34495a;
+  flex: 0 0 auto;
+}
+
+.distribution-quantity {
+  text-align: right;
+  margin-left: 8px;
+  font-weight: 500;
+  color: #526a80;
+  font-variant-numeric: tabular-nums;
+}
+
+.distribution-percent {
+  text-align: right;
+  margin-left: 4px;
+  color: #718494;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Responsive chart */
