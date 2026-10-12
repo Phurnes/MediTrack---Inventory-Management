@@ -1995,3 +1995,248 @@ textarea {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* =========================================
+   MEDTRACK — REFINED HEALTHCARE THEME
+   ========================================= */
+
+:root {
+  --med-primary: #0f9f9a;
+  --med-primary-dark: #006b68;
+  --med-deep-teal: #064e4b;
+  --med-mint: #dff7f1;
+  --med-surface: #ffffff;
+  --med-background: #f3f8fa;
+  --med-border: #dce9ed;
+  --med-text: #172b3a;
+  --med-muted: #718494;
+  --med-shadow: 0 8px 24px rgba(14, 70, 82, 0.08);
+}
+
+/* App background */
+body {
+  background:
+    radial-gradient(
+      circle at 5% 0%,
+      rgba(20, 184, 166, 0.13),
+      transparent 30%
+    ),
+    linear-gradient(135deg, #f3fbfa 0%, #eef5fb 55%, #e7f5f3 100%);
+  color: var(--med-text);
+}
+
+/* Dashboard banner — strong reference-style gradient */
+.dashboard-hero,
+.welcome-banner,
+.hero-banner {
+  background: linear-gradient(
+    120deg,
+    #10a7a4 0%,
+    #087f7c 48%,
+    #064e4b 100%
+  );
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 20px;
+  box-shadow: 0 12px 30px rgba(0, 105, 102, 0.18);
+}
+
+/* Shared card treatment */
+.stat-card,
+.inventory-panel,
+.planner-panel,
+.assistant-panel,
+.distribution-card {
+  background: linear-gradient(145deg, #ffffff 0%, #f8fcfd 100%);
+  border: 1px solid var(--med-border);
+  box-shadow: var(--med-shadow);
+  border-radius: 16px;
+}
+
+/* Primary actions */
+button.primary,
+.primary-button,
+.add-button,
+button[type="submit"] {
+  background: linear-gradient(135deg, #12aaa4 0%, #08706e 100%);
+  color: #ffffff;
+  border: 0;
+  box-shadow: 0 5px 14px rgba(8, 112, 110, 0.18);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+button.primary:hover,
+.primary-button:hover,
+.add-button:hover,
+button[type="submit"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(8, 112, 110, 0.25);
+}
+
+/* =========================================
+   INVENTORY DISTRIBUTION DONUT CHART
+   ========================================= */
+
+.distribution-card {
+  min-width: 0;
+  padding: 22px;
+  overflow: hidden;
+}
+
+.distribution-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.distribution-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--med-text);
+}
+
+.distribution-heading p {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--med-muted);
+}
+
+.distribution-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #dff7f1, #e1efff);
+  color: var(--med-primary-dark);
+  font-size: 1.2rem;
+}
+
+.distribution-chart-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 26px 0 22px;
+}
+
+.distribution-donut {
+  display: grid;
+  place-items: center;
+  width: 190px;
+  height: 190px;
+  max-width: 100%;
+  border-radius: 50%;
+  position: relative;
+  box-shadow: 0 8px 22px rgba(14, 70, 82, 0.10);
+  transition: transform 200ms ease;
+}
+
+.distribution-donut:hover {
+  transform: scale(1.035);
+}
+
+.distribution-donut-hole {
+  width: 64%;
+  height: 64%;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #ffffff, #f3fafb);
+  box-shadow: inset 0 0 0 1px #e5eff1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.distribution-donut-hole span {
+  font-size: 0.72rem;
+  color: var(--med-muted);
+}
+
+.distribution-donut-hole strong {
+  font-size: 1.5rem;
+  line-height: 1.2;
+  font-weight: 800;
+  color: var(--med-text);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.distribution-donut-hole small {
+  font-size: 0.7rem;
+  color: var(--med-muted);
+}
+
+.distribution-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.distribution-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto 48px;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+}
+
+.distribution-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.distribution-category {
+  color: #34495a;
+  min-width: 0;
+}
+
+.distribution-quantity {
+  font-weight: 600;
+  color: #617487;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.distribution-percent {
+  color: var(--med-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.distribution-empty {
+  text-align: center;
+  color: var(--med-muted);
+  font-size: 0.85rem;
+  padding: 12px 0;
+}
+
+/* Responsive chart */
+@media (max-width: 480px) {
+  .distribution-card {
+    padding: 16px;
+  }
+
+  .distribution-donut {
+    width: 165px;
+    height: 165px;
+  }
+
+  .distribution-row {
+    gap: 7px;
+    font-size: 0.76rem;
+    grid-template-columns: 9px minmax(0, 1fr) auto 43px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .distribution-donut,
+  button.primary,
+  .primary-button,
+  .add-button {
+    transition: none;
+  }
+}

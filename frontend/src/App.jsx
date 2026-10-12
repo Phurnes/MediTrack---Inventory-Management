@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import ReactMarkdown from "react-markdown";
 import StockPlanner from "./StockPlanner";
+import InventoryDistribution from "./InventoryDistribution";
 
 const API_URL = "http://127.0.0.1:8000/api/medicines/";
 const ASSISTANT_URL = "http://127.0.0.1:8000/api/assistant/";
@@ -434,7 +435,7 @@ function App() {
             })}
           </div>
         </header>
-
+<InventoryDistribution medicines={medicines} />
         {error && (
           <div className="app-message error-message" role="alert">
             <span>{error}</span>
